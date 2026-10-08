@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Tablero Negocios Financieros - El Puerto de Liverpool</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] }, colors: { liverpool: { header: '#52124B' } } } } }
+</script>
+<style>
+  body { font-family: 'Inter', sans-serif; background-color: #EFEFEF; }
+  .grid-dot-bg { background-image: radial-gradient(#C4C4C4 1px, transparent 1px); background-size: 12px 12px; }
+  .tab-btn { transition: all 0.2s ease-in-out; }
+  .tab-btn.active { color: #0284C7; border-bottom: 3px solid #0284C7; font-weight: 700; }
+</style>
+</head>
+<body class="min-h-screen text-slate-800 flex flex-col">
+
+<header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 flex justify-center items-center h-12">
+    <nav class="flex space-x-8 text-sm font-medium">
+      <button onclick="switchTab('colocacion')" id="tab-colocacion" class="tab-btn active py-3 px-2 text-gray-600 hover:text-sky-600">Colocación</button>
+      <button onclick="switchTab('aprobacion')" id="tab-aprobacion" class="tab-btn py-3 px-2 text-gray-600 hover:text-sky-600">Aprobación</button>
+      <button onclick="switchTab('solicitudes')" id="tab-solicitudes" class="tab-btn py-3 px-2 text-gray-600 hover:text-sky-600">Solicitudes</button>
+      <button onclick="switchTab('lineas')" id="tab-lineas" class="tab-btn py-3 px-2 text-gray-600 hover:text-sky-600">Líneas</button>
+    </nav>
+  </div>
+</header>
+
+<main class="flex-grow p-3 sm:p-6 max-w-[1400px] mx-auto w-full">
+  <div class="bg-white rounded-t-md shadow-sm border border-gray-200 overflow-hidden flex flex-col md:flex-row items-stretch mb-3">
+    <div class="p-4 bg-white md:w-1/4 flex items-center justify-between border-b md:border-b-0 md:border-r border-gray-200">
+      <div class="flex items-center space-x-3">
+        <div class="flex flex-col">
+          <span class="text-xs font-bold tracking-wider text-pink-700 uppercase">Negocios</span>
+          <span class="text-lg font-black tracking-tight text-slate-900 leading-none">FINANCIEROS</span>
+        </div>
+        <div class="h-8 w-[1px] bg-gray-300"></div>
+        <div class="text-[10px] text-gray-500 leading-tight">Una división de<br><strong class="text-slate-800">El Puerto de Liverpool</strong></div>
+      </div>
+    </div>
+    <div class="bg-liverpool-header md:w-3/4 text-white p-3 sm:p-4 flex items-center justify-center shadow-inner">
+      <h1 id="dashboard-title" class="text-2xl font-bold tracking-wide text-center">Cuentas Nuevas</h1>
+    </div>
+  </div>
+  <div id="cards-container" class="space-y-4"></div>
+</main>
+
+<script>
+const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const ST = {
+  visa:     { name: "VISA",         headerClass: "bg-[#525252]" },
+  dept:     { name: "Departamental", headerClass: "bg-[#6C1D63]" },
+  mini:     { name: "Minipagos",     headerClass: "bg-[#18863A]" },
+  suburbia: { name: "Suburbia",      headerClass: "bg-[#BA007C]" }
+};
+const BAR = { visa: '#4B5563', dept: '#A855F7', mini: '#22C55E', suburbia: '#BA007C' };
+const BAR_LINEAS = { visa: '#D1D5DB', dept: '#E9D5FF', mini: '#BBF7D0', suburbia: '#F5D0FE' };
+
+function styleFor(tab, key) {
+  const bar = tab === 'lineas' ? BAR_LINEAS[key] : (tab === 'colocacion' && key === 'visa' ? '#6B7280' : BAR[key]);
+  return { barColor: bar, lineColor: key === 'visa' ? '#F97316' : '#EA580C' };
+}
+
+let dashboardData = null, PERIODO = '', YEAR = new Date().getFullYear();
+let activeCharts = [];
+let currentTab = 'colocacion';
+
+function switchTab(tabKey) {
+  if (!dashboardData) return;
+  currentTab = tabKey;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById(`tab-${tabKey}`);
+  if (btn) btn.classList.add('active');
+  const data = dashboardData.tabs[tabKey];
+  document.getElementById('dashboard-title').innerText = data.title;
+  renderDashboardRows(data);
+}
+
+function renderDashboardRows(data) {
+  activeCharts.forEach(c => c.destroy());
+  activeCharts = [];
+  const container = document.getElementById('cards-container');
+  container.innerHTML = '';
+
+  data.rows.forEach((row, index) => {
+    const rowId = `chart-${currentTab}-${index}`;
+    const headerStyle = ST[row.key] || { name: row.name, headerClass: row.headerClass || 'bg-slate-700' };
+
+    const renderDiffBox = (d, pos) => {
+      const c = d.neutral ? 'text-gray-400' : (pos ? 'text-emerald-600' : 'text-red-500');
+      if (data.showSeparateDiffHeaders) {
+        return `<div class="text-center pt-2 border-t border-gray-100">
+          <div class="text-[11px] text-gray-500 mb-1 font-medium">${data.kpiLabels.diff}</div>
+          <div class="grid grid-cols-2 gap-1 text-center">
+            <div><div class="text-[9px] text-gray-400 font-semibold uppercase tracking-wider mb-0.5">${data.metricName}</div><div class="text-sm font-bold ${c}">${d.diffNum}</div></div>
+            <div><div class="text-[9px] text-gray-400 font-semibold uppercase tracking-wider mb-0.5">Porcentaje</div><div class="text-sm font-bold ${c}">${d.diffPct}</div></div>
+          </div></div>`;
+      }
+      return `<div class="text-center pt-2 border-t border-gray-100">
+        <div class="text-[11px] text-gray-500 mb-0.5 font-medium">${data.kpiLabels.diff}</div>
+        <div class="flex justify-center items-center space-x-2 font-bold ${c}">
+          <span class="text-sm">${d.diffNum}</span>${d.diffPct ? `<span class="text-sm">${d.diffPct}</span>` : ''}
+        </div></div>`;
+    };
+
+    const box = (d, cls) => `<div class="space-y-3 ${cls}">
+      <div class="grid grid-cols-2 text-center">
+        <div><div class="text-[11px] text-gray-500 font-medium">${data.kpiLabels.ppto}</div><div class="text-lg font-extrabold text-slate-800">${d.ppto}</div></div>
+        <div><div class="text-[11px] text-gray-500 font-medium">${data.kpiLabels.main}</div><div class="text-lg font-extrabold text-slate-800">${d.actual}</div></div>
+      </div>${renderDiffBox(d, d.isPositive)}</div>`;
+
+    // HTML para Scorecards en esquina superior izquierda
+    const scorecardsHtml = (data.showScorecards && (row.chartData.meTotal || row.chartData.pptoTotal)) ? `
+      <div class="absolute top-2 left-12 z-10 flex space-x-6 pointer-events-none bg-white/70 px-2 py-1 rounded backdrop-blur-[1px]">
+        ${row.chartData.meTotal ? `
+          <div class="text-center">
+            <div class="text-[10px] text-gray-500 font-medium leading-none">ME ${YEAR}</div>
+            <div class="text-sm font-bold text-slate-800 leading-tight">${row.chartData.meTotal}</div>
+          </div>` : ''}
+        ${row.chartData.pptoTotal ? `
+          <div class="text-center">
+            <div class="text-[10px] text-gray-500 font-medium leading-none">Ppto Rev ${YEAR}</div>
+            <div class="text-sm font-bold text-slate-800 leading-tight">${row.chartData.pptoTotal}</div>
+          </div>` : ''}
+      </div>
+    ` : '';
+
+    container.insertAdjacentHTML('beforeend', `
+      <div class="bg-white rounded-md shadow border border-gray-200 overflow-hidden grid grid-cols-1 lg:grid-cols-12 gap-0">
+        <div class="lg:col-span-5 border-b lg:border-b-0 lg:border-r border-gray-200 flex flex-col justify-between">
+          
+          <!-- ENCABEZADO TIPO TARJETA -->
+          <div class="${headerStyle.headerClass} text-white px-6 pt-2.5 pb-2 flex flex-col items-center">
+            <span class="text-xl font-bold tracking-tight text-center leading-tight mb-1">${headerStyle.name}</span>
+            <div class="w-full flex justify-between items-center text-xs font-semibold tracking-wide text-white/90">
+              <span>Acumulado</span>
+              <span>${PERIODO}</span>
+            </div>
+          </div>
+
+          <div class="p-4 bg-white grid grid-cols-2 gap-4 my-auto grid-dot-bg">
+            ${box(row.acumulado, 'pr-2 border-r border-dashed border-gray-300')}
+            ${box(row.mes, 'pl-2')}
+          </div>
+        </div>
+        <div class="lg:col-span-7 p-3 relative flex flex-col justify-between bg-white grid-dot-bg">
+          ${scorecardsHtml}
+          <div class="flex justify-between items-center mb-1">
+            <div>${row.target ? `<span class="bg-gray-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded shadow-sm">${row.target}</span>` : ''}</div>
+          </div>
+          <div class="w-full h-36 relative mt-2"><canvas id="${rowId}"></canvas></div>
+        </div>
+      </div>`);
+
+    setTimeout(() => initChart(rowId, Object.assign({}, row.chartData, styleFor(currentTab, row.key))), 50);
+  });
+}
+
+function initChart(canvasId, ci) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const datasets = [{ type: 'bar', label: ci.yearLabel, data: ci.actual, backgroundColor: ci.barColor, borderRadius: 2, barPercentage: 0.6, categoryPercentage: 0.8 }];
+  if (ci.prev) datasets.push({ type: 'bar', label: ci.prevLabel, data: ci.prev, backgroundColor: '#E5E7EB', borderRadius: 2, barPercentage: 0.6, categoryPercentage: 0.8 });
+  if (ci.me) datasets.push({ type: 'line', label: 'ME', data: ci.me, borderColor: '#0EA5E9', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 4, tension: 0.2, fill: false });
+  if (ci.pptoRev) datasets.push({ type: 'line', label: ci.lineLabel || 'PPTO Rev', data: ci.pptoRev, borderColor: ci.lineColor, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.2, fill: false });
+
+  activeCharts.push(new Chart(ctx, {
+    data: { labels: M, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'right', align: 'center', labels: { boxWidth: 10, boxHeight: 10, font: { size: 10, family: 'Inter' }, usePointStyle: false } },
+        tooltip: { mode: 'index', intersect: false, padding: 8, callbacks: { footer: items => ['Días: ' + new Date(YEAR, items[0].dataIndex + 1, 0).getDate(), 'Ventas especiales: ' + (items[0].dataIndex >= 9 ? 'Sí' : 'No')], label: c => {
+          let l = c.dataset.label ? c.dataset.label + ': ' : '';
+          if (c.parsed.y !== null) l += ci.isPct ? c.parsed.y.toFixed(1) + '%' : c.parsed.y.toLocaleString();
+          return l;
+        } } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 9, family: 'Inter' }, color: '#6B7280' } },
+        y: { grid: { color: '#F3F4F6' }, ticks: { font: { size: 9, family: 'Inter' }, color: '#6B7280',
+          callback: v => ci.isPct ? v + '%' : (v >= 1000 ? (v / 1000) + 'K' : v) } }
+      }
+    }
+  }));
+}
+
+window.onload = () => {
+  const c = document.getElementById('cards-container');
+  c.innerHTML = '<div class="text-center text-gray-500 py-16 text-sm">Cargando datos…</div>';
+  google.script.run
+    .withSuccessHandler(d => { dashboardData = d; PERIODO = d.periodo; YEAR = d.year; switchTab('colocacion'); })
+    .withFailureHandler(e => { c.innerHTML = '<div class="text-center text-red-600 py-16 text-sm">No se pudo cargar: ' + ((e && e.message) || e) + '</div>'; })
+    .getDashboardData();
+};
+</script>
+</body>
+</html>
